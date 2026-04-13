@@ -64,9 +64,11 @@ def formatear_resumen_anual(resumen_anual: pd.DataFrame):
         if col in resumen_anual_fmt.columns:
             resumen_anual_fmt[col] = resumen_anual_fmt[col].apply(lambda x: f"{x:.2f}%")
 
-    styled = resumen_anual_fmt.style.applymap(
+    columnas_color = [c for c in ["Rendimiento", "Rendimiento_Acumulado"] if c in resumen_anual_fmt.columns]
+
+    styled = resumen_anual_fmt.style.map(
         color_valores,
-        subset=[c for c in ["Rendimiento", "Rendimiento_Acumulado"] if c in resumen_anual_fmt.columns]
+        subset=columnas_color
     )
 
     return styled
