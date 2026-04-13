@@ -548,6 +548,46 @@ if fondos_seleccionados:
                 )
 
                 st.dataframe(styled_estado, use_container_width=True, hide_index=True)
+# ============================
+# ESTADO EN FECHA ESPECÍFICA (SIMPLE)
+# ============================
+st.markdown("## Estado en fecha específica")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    mes_objetivo_txt = st.selectbox(
+        "Mes",
+        LISTA_MESES,
+        index=mes_inicio - 1,
+        key="mes_snapshot"
+    )
+    mes_objetivo = mes_numero(mes_objetivo_txt)
+
+with col2:
+    anios = sorted(df_resultado["Date"].dt.year.unique())
+    anio_objetivo = st.selectbox(
+        "Año",
+        anios,
+        index=0,
+        key="anio_snapshot"
+    )
+
+fecha_objetivo = pd.Timestamp(year=anio_objetivo, month=mes_objetivo, day=1) + pd.offsets.MonthEnd(0)
+
+df_hasta = df_resultado[df_resultado["Date"] <= fecha_objetivo]
+
+if not df_hasta.empty:
+    fila = df_hasta.iloc[-1]
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric("Aporte total", f"USD {fila['Aporte_Acum']:,.2f}")
+    c2.metric("Valor en cuenta", f"USD {fila['Valor_Cuenta']:,.2f}")
+    c3.metric("Valor de rescate", f"USD {fila['Valor_Rescate']:,.2f}")
+
+else:
+    st.warning("No hay datos para esa fecha.")
             else:
                 st.info("No fue posible construir el estado de cuenta final.")
 
