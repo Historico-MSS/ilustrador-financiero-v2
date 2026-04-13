@@ -5,6 +5,7 @@ from modules.fund_loader import cargar_todos_los_fondos
 from modules.utils import LISTA_MESES, mes_numero
 from modules.portfolio_builder import construir_portafolio
 from modules.simulator import simular_mis, simular_mss, construir_resumen_anual
+from modules.reporting import construir_estado_cuenta_final
 
 st.set_page_config(
     page_title="Ilustrador Financiero V2",
@@ -509,6 +510,46 @@ if fondos_seleccionados:
 
             styled_resumen = formatear_resumen_anual(resumen_anual)
             st.dataframe(styled_resumen, use_container_width=True, hide_index=True)
+            # =================================================
+            # PASO 7 — ESTADO DE CUENTA FINAL POR FONDO
+            # =================================================
+            st.markdown("## Paso 7 — Estado de cuenta final por fondo")
+
+            capital_base_estado = float(aporte_total)
+
+            estado_cuenta = construir_estado_cuenta_final(
+                fondos_disponibles=fondos_disponibles,
+                asignaciones=asignaciones,
+                anio_inicio=int(anio_inicio),
+                mes_inicio=int(mes_inicio),
+                capital_base=capital_base_estado
+            )
+
+            if not estado_cuenta.empty:
+                estado_fmt = estado_cuenta.copy()
+
+                for col in [
+                    "Capital inicial asignado",
+                    "Valor actual",
+                    "Ganancia / pérdida no realizada"
+                ]:
+                    estado_fmt[col] = estado_fmt[col].apply(lambda x: f"USD {x:,.2f}")
+
+                for col in [
+                    "Asignación inicial",
+                    "Participación actual",
+                    "Rentabilidad acumulada"
+                ]:
+                    estado_fmt[col] = estado_fmt[col].apply(lambda x: f"{x:.2f}%")
+
+                styled_estado = estado_fmt.style.map(
+                    color_valores,
+                    subset=["Ganancia / pérdida no realizada", "Rentabilidad acumulada"]
+                )
+
+                st.dataframe(styled_estado, use_container_width=True, hide_index=True)
+            else:
+                st.info("No fue posible construir el estado de cuenta final.")
 
         except Exception as e:
             st.error(f"Error en el cálculo: {e}")
