@@ -3,6 +3,7 @@ import pandas as pd
 
 from modules.fund_loader import cargar_todos_los_fondos
 from modules.utils import LISTA_MESES, mes_numero
+from modules.portfolio_builder import construir_portafolio
 
 st.set_page_config(
     page_title="Ilustrador Financiero V2",
@@ -78,7 +79,7 @@ dcs_managed = None
 for nombre, info in fondos.items():
     nombre_lower = nombre.lower()
 
-    # Detectar los dos fondos managed y separarlos
+    # Detectar los dos managed y separarlos
     if "managed" in nombre_lower:
         if "dgt" in nombre_lower:
             dgt_managed = info
@@ -164,6 +165,7 @@ if fondos_disponibles:
     )
 
     st.dataframe(df_disponibles, use_container_width=True, hide_index=True)
+
 # ---------------------------
 # PASO 2 — SELECCIÓN DE FONDOS
 # ---------------------------
@@ -242,6 +244,44 @@ if fondos_seleccionados:
         st.success("Ya puedes pasar al cálculo de la ilustración.")
     else:
         st.info("La asignación debe sumar exactamente 100% para continuar.")
+
+    # ---------------------------
+    # PASO 4 — CONSTRUCCIÓN DEL PORTAFOLIO
+    # ---------------------------
+    if total_asignado == 100:
+        st.markdown("## Paso 4 — Portafolio combinado")
+
+        try:
+            df_portafolio = construir_portafolio(fondos_disponibles, asignaciones)
+
+            st.success("Portafolio combinado construido correctamente.")
+
+            st.markdown("### Serie mensual del portafolio")
+            st.dataframe(df_portafolio.head(24), use_container_width=True, hide_index=True)
+
+            st.markdown("### Evolución del portafolio combinado")
+            st.line_chart(df_portafolio.set_index("Date")[["Price"]])
+
+            st.markdown("### Resumen del portafolio")
+            fecha_inicio_port = df_portafolio["Date"].min().strftime("%Y-%m-%d")
+            fecha_fin_port = df_portafolio["Date"].max().strftime("%Y-%m-%d")
+            nav_inicial = df_portafolio["Price"].iloc[0]
+            nav_final = df_portafolio["Price"].iloc[-1]
+            rendimiento_total = ((nav_final / nav_inicial) - 1) * 100 if nav_inicial != 0 else 0
+
+            resumen_port = pd.DataFrame([{
+                "Inicio": fecha_inicio_port,
+                "Fin": fecha_fin_port,
+                "Meses": len(df_portafolio),
+                "NAV inicial": round(nav_inicial, 4),
+                "NAV final": round(nav_final, 4),
+                "Rendimiento acumulado": f"{rendimiento_total:,.2f}%"
+            }])
+
+            st.dataframe(resumen_port, use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            st.error(f"Error construyendo el portafolio: {e}")
 
 # ---------------------------
 # TABLA DE FONDOS NO DISPONIBLES
