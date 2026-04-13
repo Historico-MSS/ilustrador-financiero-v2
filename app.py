@@ -184,6 +184,66 @@ if len(fondos_seleccionados) > 8:
     st.error("Solo puedes seleccionar un máximo de 8 fondos.")
 
 # ---------------------------
+# PASO 3 — ASIGNACIÓN DE PORCENTAJES
+# ---------------------------
+if fondos_seleccionados:
+    st.markdown("## Paso 3 — Asignación inicial")
+
+    opciones_porcentaje = list(range(0, 101, 10))
+    asignaciones = {}
+    total_asignado = 0
+
+    for fondo in fondos_seleccionados:
+        info_fondo = fondos_disponibles[fondo]
+
+        st.markdown(f"### {fondo}")
+        st.caption(
+            f"Inicio: {pd.Timestamp(info_fondo['start_date']).strftime('%Y-%m-%d')} | "
+            f"Fin: {pd.Timestamp(info_fondo['end_date']).strftime('%Y-%m-%d')}"
+        )
+
+        porcentaje = st.selectbox(
+            f"Asignación para {fondo}",
+            options=opciones_porcentaje,
+            index=0,
+            key=f"peso_{fondo}"
+        )
+
+        asignaciones[fondo] = porcentaje
+        total_asignado += porcentaje
+
+    st.markdown("### Resumen de asignación")
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        st.metric("Total asignado", f"{total_asignado}%")
+
+    with col_b:
+        diferencia = 100 - total_asignado
+        if diferencia > 0:
+            st.warning(f"Falta asignar {diferencia}%")
+        elif diferencia < 0:
+            st.error(f"Excede en {abs(diferencia)}%")
+        else:
+            st.success("Asignación completa: 100%")
+
+    tabla_asignacion = []
+    for fondo, porcentaje in asignaciones.items():
+        tabla_asignacion.append({
+            "Fondo": fondo,
+            "Asignación inicial": f"{porcentaje}%"
+        })
+
+    df_asignacion = pd.DataFrame(tabla_asignacion)
+    st.dataframe(df_asignacion, use_container_width=True, hide_index=True)
+
+    if total_asignado == 100:
+        st.success("Ya puedes pasar al cálculo de la ilustración.")
+    else:
+        st.info("La asignación debe sumar exactamente 100% para continuar.")
+
+# ---------------------------
 # TABLA DE FONDOS NO DISPONIBLES
 # ---------------------------
 with st.expander("Ver fondos que aún no estaban disponibles en esa fecha"):
