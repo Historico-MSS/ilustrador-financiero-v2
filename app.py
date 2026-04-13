@@ -7,14 +7,15 @@ from matplotlib.backends.backend_pdf import PdfPages
 from modules.fund_loader import cargar_todos_los_fondos
 from modules.utils import LISTA_MESES, mes_numero
 from modules.portfolio_builder import construir_portafolio
-from modules.simulator import simular_mis, simular_mss, construir_resumen_anual
+from modules.simulator import simular_mis, simular_mss
 from modules.reporting import construir_estado_cuenta_final
 
-st.set_page_config(page_title="Ilustrador Financiero V2", layout="wide")
+st.set_page_config(layout="wide")
+st.title("💼 Ilustrador Financiero")
 
-# ============================
+# =========================================================
 # FORMATO
-# ============================
+# =========================================================
 def color_valores(val):
     try:
         v = float(str(val).replace("USD", "").replace("%", "").replace(",", ""))
@@ -36,72 +37,34 @@ def format_estado(df):
 
     return df_fmt.style.map(color_valores)
 
-def format_resumen(df):
-    df_fmt = df.copy()
-
-    for col in ["Aporte_Acum","Retiro","Valor_Cuenta","Valor_Rescate"]:
-        df_fmt[col] = df_fmt[col].apply(lambda x: f"USD {x:,.2f}")
-
-    for col in ["Rendimiento","Rendimiento_Acumulado"]:
-        df_fmt[col] = df_fmt[col].apply(lambda x: f"{x:.2f}%")
-
-    return df_fmt.style.map(color_valores)
-
-# ============================
-# RECOMENDACIONES AUTOMÁTICAS
-# ============================
-def generar_recomendacion(estado):
-    df = estado[estado["Fondo"] != "Total"]
-
-    mayor = df.loc[df["Participación actual"].idxmax()]
-    rendimiento = df["Rentabilidad acumulada"].mean()
-
-    texto = ""
-
-    if mayor["Participación actual"] > 60:
-        texto += f"El portafolio presenta una alta concentración en {mayor['Fondo']} ({mayor['Participación actual']:.2f}%). "
-        texto += "Se podría considerar diversificar para reducir riesgo.\n\n"
-
-    else:
-        texto += "El portafolio mantiene una diversificación adecuada entre activos.\n\n"
-
-    if rendimiento > 20:
-        texto += "El rendimiento acumulado es sólido, impulsado por activos de mayor crecimiento.\n"
-    elif rendimiento < 0:
-        texto += "El portafolio presenta rendimiento negativo; se recomienda revisar la estrategia.\n"
-    else:
-        texto += "El portafolio presenta un crecimiento moderado acorde al perfil de riesgo.\n"
-
-    return texto
-
-# ============================
-# PDF PREMIUM
-# ============================
-def generar_pdf(df_resultado, estado, cliente, recomendacion):
+# =========================================================
+# PDF LIMPIO
+# =========================================================
+def generar_pdf(df_resultado, estado, cliente):
 
     buffer = io.BytesIO()
 
     with PdfPages(buffer) as pdf:
 
-        # Página 1
-        fig, ax = plt.subplots(figsize=(11,7))
-        df_resultado.set_index("Date")[["Valor_Cuenta","Valor_Rescate"]].plot(ax=ax)
+        fig = plt.figure(figsize=(11,8))
+
+        plt.figtext(0.1, 0.92, "Ilustración Financiera", fontsize=18, weight="bold")
+        plt.figtext(0.1, 0.88, f"Cliente: {cliente}", fontsize=11)
 
         valor = df_resultado["Valor_Cuenta"].iloc[-1]
         aporte = df_resultado["Aporte_Acum"].iloc[-1]
-        rend = ((valor/aporte)-1)*100 if aporte else 0
 
-        ax.set_title(f"Ilustración financiera\n{cliente}", fontsize=16)
+        plt.figtext(0.1, 0.80, f"Aporte: USD {aporte:,.0f}")
+        plt.figtext(0.1, 0.76, f"Valor: USD {valor:,.0f}")
 
-        fig.text(0.1,0.85,f"Aporte: USD {aporte:,.0f}")
-        fig.text(0.1,0.82,f"Valor: USD {valor:,.0f}")
-        fig.text(0.1,0.79,f"Rendimiento: {rend:.2f}%")
+        ax = fig.add_axes([0.1, 0.1, 0.8, 0.5])
+        df_resultado.set_index("Date")[["Valor_Cuenta","Valor_Rescate"]].plot(ax=ax)
 
         pdf.savefig(fig)
         plt.close()
 
-        # Página 2
-        fig2, ax2 = plt.subplots(figsize=(11,6))
+        fig2 = plt.figure(figsize=(11,6))
+        ax2 = fig2.add_axes([0,0,1,1])
         ax2.axis("off")
 
         df = estado.copy()
@@ -112,31 +75,55 @@ def generar_pdf(df_resultado, estado, cliente, recomendacion):
         for col in ["Asignación inicial","Participación actual","Rentabilidad acumulada"]:
             df[col] = df[col].apply(lambda x: f"{x:.2f}%")
 
-        tabla = ax2.table(cellText=df.values, colLabels=df.columns, loc="center")
-        tabla.auto_set_font_size(False)
-        tabla.set_fontsize(9)
+        tabla = ax2.table(
+            cellText=df.values,
+            colLabels=df.columns,
+            loc="center",
+            bbox=[0.05,0.1,0.9,0.7]
+        )
 
         pdf.savefig(fig2)
-        plt.close()
-
-        # Página 3 — DONUT + TEXTO
-        fig3, ax3 = plt.subplots(figsize=(11,6))
-        ax3.axis("off")
-
-        ax3.text(0,0.8,"Análisis del portafolio",fontsize=14,weight="bold")
-        ax3.text(0,0.5,recomendacion,fontsize=10)
-
-        pdf.savefig(fig3)
         plt.close()
 
     buffer.seek(0)
     return buffer
 
-# ============================
-# APP
-# ============================
-st.title("💼 Ilustrador Financiero")
+# =========================================================
+# PORTAFOLIO CON CAMBIOS
+# =========================================================
+def portafolio_con_cambios(fondos, asignacion, cambios, anio_inicio, mes_inicio):
 
+    fecha_inicio = pd.Timestamp(year=anio_inicio, month=mes_inicio, day=1)+pd.offsets.MonthEnd(0)
+
+    if not cambios:
+        return construir_portafolio(fondos, asignacion)
+
+    df_total = pd.DataFrame()
+    asignacion_actual = asignacion
+
+    cambios = sorted(cambios, key=lambda x: (x["anio"], x["mes"]))
+
+    for cambio in cambios:
+        fecha_cambio = pd.Timestamp(year=cambio["anio"], month=cambio["mes"], day=1)+pd.offsets.MonthEnd(0)
+
+        df_temp = construir_portafolio(fondos, asignacion_actual)
+        df_temp = df_temp[(df_temp["Date"] >= fecha_inicio) & (df_temp["Date"] < fecha_cambio)]
+
+        df_total = pd.concat([df_total, df_temp])
+
+        asignacion_actual = cambio["asig"]
+        fecha_inicio = fecha_cambio
+
+    df_temp = construir_portafolio(fondos, asignacion_actual)
+    df_temp = df_temp[df_temp["Date"] >= fecha_inicio]
+
+    df_total = pd.concat([df_total, df_temp])
+
+    return df_total.reset_index(drop=True)
+
+# =========================================================
+# CARGA
+# =========================================================
 fondos = cargar_todos_los_fondos("data")
 
 col1, col2 = st.columns(2)
@@ -156,6 +143,11 @@ fondos_disp = {k:v for k,v in fondos.items() if pd.Timestamp(v["start_date"])<=f
 
 fondos_sel = st.multiselect("Fondos", list(fondos_disp.keys()), max_selections=8)
 
+# =========================================================
+# COMPARADOR
+# =========================================================
+comparar = st.checkbox("Comparar estrategias")
+
 if fondos_sel:
 
     asignaciones={}
@@ -168,22 +160,34 @@ if fondos_sel:
 
     st.write("Total:", total)
 
+    # CAMBIOS
+    cambios=[]
+    if st.checkbox("Modificar composición del portafolio en fechas específicas"):
+        for i in range(2):
+            st.write(f"Cambio {i+1}")
+            m = mes_numero(st.selectbox("Mes cambio", LISTA_MESES, key=f"m{i}"))
+            a = st.selectbox("Año cambio", list(range(2018,2027)), key=f"a{i}")
+
+            nueva={}
+            for f in fondos_sel:
+                p = st.slider(f+" cambio",0,100,0,step=10,key=f"{f}_{i}")
+                nueva[f]=p
+
+            cambios.append({"anio":a,"mes":m,"asig":nueva})
+
     if total==100:
 
-        df_port = construir_portafolio(fondos_disp, asignaciones)
+        df_port = portafolio_con_cambios(fondos_disp,asignaciones,cambios,anio_inicio,mes_inicio)
 
         if producto=="MIS":
-            monto = st.number_input("Monto inicial",min_value=10000,value=10000)
+            monto = st.number_input("Monto",min_value=10000,value=10000)
             df_res = simular_mis(df_port,monto,anio_inicio,mes_inicio,[],[])
         else:
             freq = st.selectbox("Frecuencia",["Mensual","Trimestral","Semestral","Anual"])
             aporte = st.number_input("Aporte",min_value=150,value=150)
             df_res = simular_mss(df_port,plazo,aporte,freq,anio_inicio,mes_inicio,[])
 
-        st.line_chart(df_res.set_index("Date")[["Valor_Cuenta","Valor_Rescate"]])
-
-        resumen = construir_resumen_anual(df_res,anio_inicio,mes_inicio)
-        st.dataframe(format_resumen(resumen))
+        st.line_chart(df_res.set_index("Date")["Valor_Cuenta"])
 
         estado = construir_estado_cuenta_final(
             fondos_disp,asignaciones,anio_inicio,mes_inicio,
@@ -193,13 +197,16 @@ if fondos_sel:
         st.subheader("Estado final")
         st.dataframe(format_estado(estado))
 
-        # 🔥 RECOMENDACIÓN
-        recomendacion = generar_recomendacion(estado)
-        st.subheader("Recomendación")
-        st.write(recomendacion)
+        # COMPARADOR
+        if comparar:
+            st.subheader("Comparación")
+            df_base = construir_portafolio(fondos_disp, asignaciones)
+            st.line_chart({
+                "Estrategia base": df_base.set_index("Date")["Price"],
+                "Estrategia con cambios": df_port.set_index("Date")["Price"]
+            })
 
-        # PDF
-        pdf = generar_pdf(df_res,estado,cliente,recomendacion)
+        pdf = generar_pdf(df_res,estado,cliente)
 
         st.download_button(
             "📄 Descargar reporte",
