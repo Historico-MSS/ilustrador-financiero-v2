@@ -13,9 +13,9 @@ from modules.reporting import construir_estado_cuenta_final
 st.set_page_config(layout="wide")
 st.title("💼 Ilustrador Financiero")
 
-# =========================================================
-# FORMATO
-# =========================================================
+# =========================
+# FORMATOS
+# =========================
 def color_valores(val):
     try:
         v = float(str(val).replace("USD", "").replace("%", "").replace(",", ""))
@@ -37,10 +37,57 @@ def format_estado(df):
 
     return df_fmt.style.map(color_valores)
 
-# =========================================================
-# PDF LIMPIO
-# =========================================================
-def generar_pdf(df_resultado, estado, cliente):
+# =========================
+# PORTAFOLIO CON CAMBIOS (CONTINUIDAD REAL)
+# =========================
+def portafolio_con_cambios(fondos, asignacion_inicial, cambios, anio_inicio, mes_inicio):
+
+    fecha_actual = pd.Timestamp(year=anio_inicio, month=mes_inicio, day=1)+pd.offsets.MonthEnd(0)
+
+    df_total = pd.DataFrame()
+    asignacion_actual = asignacion_inicial.copy()
+
+    cambios = sorted(cambios, key=lambda x: (x["anio"], x["mes"]))
+
+    for cambio in cambios:
+
+        fecha_cambio = pd.Timestamp(year=cambio["anio"], month=cambio["mes"], day=1)+pd.offsets.MonthEnd(0)
+
+        asignacion_filtrada = {k:v for k,v in asignacion_actual.items() if v > 0}
+        if not asignacion_filtrada:
+            continue
+
+        df_tramo = construir_portafolio(fondos, asignacion_filtrada)
+        df_tramo = df_tramo[(df_tramo["Date"] >= fecha_actual) & (df_tramo["Date"] < fecha_cambio)]
+
+        if not df_total.empty:
+            ultimo = df_total["Price"].iloc[-1]
+            df_tramo["Price"] = df_tramo["Price"] / df_tramo["Price"].iloc[0] * ultimo
+
+        df_total = pd.concat([df_total, df_tramo])
+
+        asignacion_actual = cambio["asig"]
+        fecha_actual = fecha_cambio
+
+    # último tramo
+    asignacion_filtrada = {k:v for k,v in asignacion_actual.items() if v > 0}
+
+    if asignacion_filtrada:
+        df_tramo = construir_portafolio(fondos, asignacion_filtrada)
+        df_tramo = df_tramo[df_tramo["Date"] >= fecha_actual]
+
+        if not df_total.empty:
+            ultimo = df_total["Price"].iloc[-1]
+            df_tramo["Price"] = df_tramo["Price"] / df_tramo["Price"].iloc[0] * ultimo
+
+        df_total = pd.concat([df_total, df_tramo])
+
+    return df_total.reset_index(drop=True)
+
+# =========================
+# PDF PREMIUM
+# =========================
+def generar_pdf(df_resultado, estado, cambios):
 
     buffer = io.BytesIO()
 
@@ -48,39 +95,33 @@ def generar_pdf(df_resultado, estado, cliente):
 
         fig = plt.figure(figsize=(11,8))
 
-        plt.figtext(0.1, 0.92, "Ilustración Financiera", fontsize=18, weight="bold")
-        plt.figtext(0.1, 0.88, f"Cliente: {cliente}", fontsize=11)
+        ax = fig.add_axes([0.1,0.2,0.8,0.6])
+        df_resultado.set_index("Date")["Valor_Cuenta"].plot(ax=ax)
 
-        valor = df_resultado["Valor_Cuenta"].iloc[-1]
-        aporte = df_resultado["Aporte_Acum"].iloc[-1]
+        # líneas de cambio
+        for c in cambios:
+            fecha = pd.Timestamp(year=c["anio"], month=c["mes"], day=1)+pd.offsets.MonthEnd(0)
+            ax.axvline(fecha, linestyle="--", alpha=0.5)
 
-        plt.figtext(0.1, 0.80, f"Aporte: USD {aporte:,.0f}")
-        plt.figtext(0.1, 0.76, f"Valor: USD {valor:,.0f}")
-
-        ax = fig.add_axes([0.1, 0.1, 0.8, 0.5])
-        df_resultado.set_index("Date")[["Valor_Cuenta","Valor_Rescate"]].plot(ax=ax)
+        ax.set_title("Evolución del portafolio")
+        ax.grid(True)
 
         pdf.savefig(fig)
         plt.close()
 
+        # donuts
         fig2 = plt.figure(figsize=(11,6))
-        ax2 = fig2.add_axes([0,0,1,1])
-        ax2.axis("off")
 
-        df = estado.copy()
+        dfc = estado[estado["Fondo"]!="Total"]
 
-        for col in ["Capital inicial asignado","Valor actual","Ganancia / pérdida no realizada"]:
-            df[col] = df[col].apply(lambda x: f"USD {x:,.2f}")
+        ax1 = fig2.add_axes([0.1,0.2,0.35,0.6])
+        ax2 = fig2.add_axes([0.55,0.2,0.35,0.6])
 
-        for col in ["Asignación inicial","Participación actual","Rentabilidad acumulada"]:
-            df[col] = df[col].apply(lambda x: f"{x:.2f}%")
+        ax1.pie(dfc["Asignación inicial"], autopct='%1.1f%%', wedgeprops={'width':0.4})
+        ax1.set_title("Inicial")
 
-        tabla = ax2.table(
-            cellText=df.values,
-            colLabels=df.columns,
-            loc="center",
-            bbox=[0.05,0.1,0.9,0.7]
-        )
+        ax2.pie(dfc["Participación actual"], autopct='%1.1f%%', wedgeprops={'width':0.4})
+        ax2.set_title("Actual")
 
         pdf.savefig(fig2)
         plt.close()
@@ -88,66 +129,24 @@ def generar_pdf(df_resultado, estado, cliente):
     buffer.seek(0)
     return buffer
 
-# =========================================================
-# PORTAFOLIO CON CAMBIOS
-# =========================================================
-def portafolio_con_cambios(fondos, asignacion, cambios, anio_inicio, mes_inicio):
-
-    fecha_inicio = pd.Timestamp(year=anio_inicio, month=mes_inicio, day=1)+pd.offsets.MonthEnd(0)
-
-    if not cambios:
-        return construir_portafolio(fondos, asignacion)
-
-    df_total = pd.DataFrame()
-    asignacion_actual = asignacion
-
-    cambios = sorted(cambios, key=lambda x: (x["anio"], x["mes"]))
-
-    for cambio in cambios:
-        fecha_cambio = pd.Timestamp(year=cambio["anio"], month=cambio["mes"], day=1)+pd.offsets.MonthEnd(0)
-
-        df_temp = construir_portafolio(fondos, asignacion_actual)
-        df_temp = df_temp[(df_temp["Date"] >= fecha_inicio) & (df_temp["Date"] < fecha_cambio)]
-
-        df_total = pd.concat([df_total, df_temp])
-
-        asignacion_actual = cambio["asig"]
-        fecha_inicio = fecha_cambio
-
-    df_temp = construir_portafolio(fondos, asignacion_actual)
-    df_temp = df_temp[df_temp["Date"] >= fecha_inicio]
-
-    df_total = pd.concat([df_total, df_temp])
-
-    return df_total.reset_index(drop=True)
-
-# =========================================================
-# CARGA
-# =========================================================
+# =========================
+# INPUTS
+# =========================
 fondos = cargar_todos_los_fondos("data")
 
-col1, col2 = st.columns(2)
-producto = col1.selectbox("Producto", ["MIS","MSS"])
-plazo = col2.selectbox("Plazo", list(range(5,21))) if producto=="MSS" else None
-
-col3, col4 = st.columns(2)
-mes_txt = col3.selectbox("Mes", LISTA_MESES)
+mes_txt = st.selectbox("Mes inicio", LISTA_MESES)
 mes_inicio = mes_numero(mes_txt)
-anio_inicio = col4.selectbox("Año", list(range(2018,2027)))
-
-cliente = st.text_input("Cliente","Cliente")
+anio_inicio = st.selectbox("Año inicio", list(range(2018,2027)))
 
 fecha_inicio = pd.Timestamp(year=anio_inicio, month=mes_inicio, day=1)+pd.offsets.MonthEnd(0)
 
 fondos_disp = {k:v for k,v in fondos.items() if pd.Timestamp(v["start_date"])<=fecha_inicio}
 
-fondos_sel = st.multiselect("Fondos", list(fondos_disp.keys()), max_selections=8)
+fondos_sel = st.multiselect("Fondos", list(fondos_disp.keys()))
 
-# =========================================================
-# COMPARADOR
-# =========================================================
-comparar = st.checkbox("Comparar estrategias")
-
+# =========================
+# ASIGNACIÓN INICIAL
+# =========================
 if fondos_sel:
 
     asignaciones={}
@@ -160,56 +159,66 @@ if fondos_sel:
 
     st.write("Total:", total)
 
-    # CAMBIOS
     cambios=[]
+
+    # =========================
+    # CAMBIOS DE ESTRATEGIA
+    # =========================
     if st.checkbox("Modificar composición del portafolio en fechas específicas"):
-        for i in range(2):
-            st.write(f"Cambio {i+1}")
-            m = mes_numero(st.selectbox("Mes cambio", LISTA_MESES, key=f"m{i}"))
-            a = st.selectbox("Año cambio", list(range(2018,2027)), key=f"a{i}")
+
+        n = st.number_input("Número de cambios",1,5,1)
+
+        for i in range(n):
+
+            st.write(f"--- Cambio {i+1} ---")
+
+            mes_c = mes_numero(st.selectbox("Mes", LISTA_MESES, key=f"m{i}"))
+            anio_c = st.selectbox("Año", list(range(2018,2027)), key=f"a{i}")
+
+            fecha_cambio = pd.Timestamp(year=anio_c, month=mes_c, day=1)+pd.offsets.MonthEnd(0)
+
+            fondos_disp_fecha = {
+                k:v for k,v in fondos.items()
+                if pd.Timestamp(v["start_date"]) <= fecha_cambio
+            }
 
             nueva={}
-            for f in fondos_sel:
-                p = st.slider(f+" cambio",0,100,0,step=10,key=f"{f}_{i}")
-                nueva[f]=p
+            total2=0
 
-            cambios.append({"anio":a,"mes":m,"asig":nueva})
+            for f in fondos_disp_fecha:
+                p = st.slider(f,0,100,0,step=10,key=f"{f}_{i}")
+                if p>0:
+                    nueva[f]=p
+                total2+=p
 
-    if total==100:
+            st.write("Total cambio:", total2)
 
-        df_port = portafolio_con_cambios(fondos_disp,asignaciones,cambios,anio_inicio,mes_inicio)
-
-        if producto=="MIS":
-            monto = st.number_input("Monto",min_value=10000,value=10000)
-            df_res = simular_mis(df_port,monto,anio_inicio,mes_inicio,[],[])
-        else:
-            freq = st.selectbox("Frecuencia",["Mensual","Trimestral","Semestral","Anual"])
-            aporte = st.number_input("Aporte",min_value=150,value=150)
-            df_res = simular_mss(df_port,plazo,aporte,freq,anio_inicio,mes_inicio,[])
-
-        st.line_chart(df_res.set_index("Date")["Valor_Cuenta"])
-
-        estado = construir_estado_cuenta_final(
-            fondos_disp,asignaciones,anio_inicio,mes_inicio,
-            df_res["Aporte_Acum"].iloc[-1]
-        )
-
-        st.subheader("Estado final")
-        st.dataframe(format_estado(estado))
-
-        # COMPARADOR
-        if comparar:
-            st.subheader("Comparación")
-            df_base = construir_portafolio(fondos_disp, asignaciones)
-            st.line_chart({
-                "Estrategia base": df_base.set_index("Date")["Price"],
-                "Estrategia con cambios": df_port.set_index("Date")["Price"]
+            cambios.append({
+                "anio":anio_c,
+                "mes":mes_c,
+                "asig":nueva
             })
 
-        pdf = generar_pdf(df_res,estado,cliente)
+    # =========================
+    # EJECUCIÓN
+    # =========================
+    if total==100:
 
-        st.download_button(
-            "📄 Descargar reporte",
-            pdf,
-            file_name=f"Reporte_{cliente}.pdf"
+        df_port = portafolio_con_cambios(fondos_disp, asignaciones, cambios, anio_inicio, mes_inicio)
+
+        st.line_chart(df_port.set_index("Date")["Price"])
+
+        estado = construir_estado_cuenta_final(
+            fondos_disp, asignaciones, anio_inicio, mes_inicio, 10000
         )
+
+        st.dataframe(format_estado(estado))
+
+        # timeline
+        st.subheader("Timeline estrategia")
+        for c in cambios:
+            st.write(f"{c['mes']}/{c['anio']} → cambio de portafolio")
+
+        pdf = generar_pdf(df_port, estado, cambios)
+
+        st.download_button("📄 Descargar PDF", pdf, "Reporte.pdf")
