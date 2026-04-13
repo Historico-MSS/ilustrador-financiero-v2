@@ -4,6 +4,7 @@ import pandas as pd
 from modules.fund_loader import cargar_todos_los_fondos
 from modules.utils import LISTA_MESES, mes_numero
 from modules.portfolio_builder import construir_portafolio
+from modules.simulator import simular_mis, simular_mss, construir_resumen_anual
 
 st.set_page_config(
     page_title="Ilustrador Financiero V2",
@@ -79,7 +80,6 @@ dcs_managed = None
 for nombre, info in fondos.items():
     nombre_lower = nombre.lower()
 
-    # Detectar los dos managed y separarlos
     if "managed" in nombre_lower:
         if "dgt" in nombre_lower:
             dgt_managed = info
@@ -98,7 +98,6 @@ for nombre, info in fondos.items():
     else:
         fondos_no_disponibles[nombre] = info
 
-# Crear Managed Fund unificado
 managed_info = None
 
 if fecha_inicio_referencia < fecha_corte_managed:
@@ -245,108 +244,205 @@ if fondos_seleccionados:
     else:
         st.info("La asignación debe sumar exactamente 100% para continuar.")
 
-    # ---------------------------
-     # ---------------------------
-    # PASO 4 — CONFIGURACIÓN FINANCIERA
-    # ---------------------------
-    st.markdown("## Paso 4 — Configuración financiera")
+    if total_asignado == 100:
+        # ---------------------------
+        # PASO 4 — CONFIGURACIÓN FINANCIERA
+        # ---------------------------
+        st.markdown("## Paso 4 — Configuración financiera")
 
-    if producto == "MIS":
-        monto_inicial = st.number_input(
-            "Inversión inicial (USD)",
-            min_value=10000,
-            value=10000,
-            step=1000
-        )
+        if producto == "MIS":
+            monto_inicial = st.number_input(
+                "Inversión inicial (USD)",
+                min_value=10000,
+                value=10000,
+                step=1000
+            )
 
-        frecuencia_pago = None
-        aporte_periodico = None
+            frecuencia_pago = None
+            aporte_periodico = None
 
-        st.caption("Mínimo inicial para MIS: USD 10,000")
+            st.caption("Mínimo inicial para MIS: USD 10,000")
 
-    else:
-        frecuencia_pago = st.selectbox(
-            "Frecuencia de aportes",
-            ["Mensual", "Trimestral", "Semestral", "Anual"]
-        )
+        else:
+            frecuencia_pago = st.selectbox(
+                "Frecuencia de aportes",
+                ["Mensual", "Trimestral", "Semestral", "Anual"]
+            )
 
-        minimos_mss = {
-            "Mensual": 150,
-            "Trimestral": 450,
-            "Semestral": 900,
-            "Anual": 1800
-        }
+            minimos_mss = {
+                "Mensual": 150,
+                "Trimestral": 450,
+                "Semestral": 900,
+                "Anual": 1800
+            }
 
-        minimo_aporte = minimos_mss[frecuencia_pago]
+            minimo_aporte = minimos_mss[frecuencia_pago]
 
-        aporte_periodico = st.number_input(
-            f"Aporte por periodo (USD) — mínimo {minimo_aporte}",
-            min_value=minimo_aporte,
-            value=minimo_aporte,
-            step=minimo_aporte
-        )
+            aporte_periodico = st.number_input(
+                f"Aporte por periodo (USD) — mínimo {minimo_aporte}",
+                min_value=minimo_aporte,
+                value=minimo_aporte,
+                step=minimo_aporte
+            )
 
-        monto_inicial = 0
+            monto_inicial = 0
 
-        st.caption(
-            "Mínimo MSS: USD 150 mensuales o sus equivalentes: "
-            "USD 450 trimestral, USD 900 semestral, USD 1,800 anual."
-        )
+            st.caption(
+                "Mínimo MSS: USD 150 mensuales o sus equivalentes: "
+                "USD 450 trimestral, USD 900 semestral, USD 1,800 anual."
+            )
 
-    # APORTES EXTRA
-    st.markdown("### Aportes adicionales")
-    st.caption("Los aportes adicionales tienen un mínimo de USD 1,500.")
+        st.markdown("### Aportes adicionales")
+        st.caption("Los aportes adicionales tienen un mínimo de USD 1,500.")
 
-    aportes_extra = []
+        aportes_extra = []
 
-    if st.checkbox("Agregar aportes adicionales"):
-        for i in range(3):
-            st.markdown(f"**Aporte adicional {i+1}**")
+        if st.checkbox("Agregar aportes adicionales"):
+            for i in range(3):
+                st.markdown(f"**Aporte adicional {i+1}**")
 
-            col_a, col_b, col_c = st.columns(3)
+                col_x, col_y, col_z = st.columns(3)
 
-            with col_a:
-                monto_extra = st.number_input(
-                    f"Monto {i+1}",
-                    min_value=0,
-                    value=0,
-                    step=500,
-                    key=f"extra_monto_{i}"
-                )
-
-            with col_b:
-                año_extra = st.number_input(
-                    f"Año {i+1}",
-                    min_value=2018,
-                    max_value=2035,
-                    value=año_inicio,
-                    key=f"extra_anio_{i}"
-                )
-
-            with col_c:
-                mes_extra_txt = st.selectbox(
-                    f"Mes {i+1}",
-                    LISTA_MESES,
-                    key=f"extra_mes_{i}"
-                )
-                mes_extra = mes_numero(mes_extra_txt)
-
-            if monto_extra > 0:
-                if monto_extra < 1500:
-                    st.warning(
-                        f"El aporte adicional {i+1} es menor al mínimo de USD 1,500 y no será considerado."
+                with col_x:
+                    monto_extra = st.number_input(
+                        f"Monto {i+1}",
+                        min_value=0,
+                        value=0,
+                        step=500,
+                        key=f"extra_monto_{i}"
                     )
-                else:
-                    aportes_extra.append({
-                        "monto": monto_extra,
-                        "anio": int(año_extra),
-                        "mes": mes_extra
-                    })
 
-    if producto == "MSS" and aportes_extra:
-        st.info(
-            "En MSS, los aportes adicionales se tratarán con estructura de costos tipo MIS."
-        )
+                with col_y:
+                    año_extra = st.number_input(
+                        f"Año {i+1}",
+                        min_value=2018,
+                        max_value=2035,
+                        value=año_inicio,
+                        key=f"extra_anio_{i}"
+                    )
+
+                with col_z:
+                    mes_extra_txt = st.selectbox(
+                        f"Mes {i+1}",
+                        LISTA_MESES,
+                        key=f"extra_mes_{i}"
+                    )
+                    mes_extra = mes_numero(mes_extra_txt)
+
+                if monto_extra > 0:
+                    if monto_extra < 1500:
+                        st.warning(
+                            f"El aporte adicional {i+1} es menor al mínimo de USD 1,500 y no será considerado."
+                        )
+                    else:
+                        aportes_extra.append({
+                            "monto": monto_extra,
+                            "anio": int(año_extra),
+                            "mes": mes_extra
+                        })
+
+        if producto == "MSS" and aportes_extra:
+            st.info(
+                "En MSS, los aportes adicionales se tratarán con estructura de costos tipo MIS."
+            )
+
+        # ---------------------------
+        # PASO 5 — PORTAFOLIO COMBINADO
+        # ---------------------------
+        st.markdown("## Paso 5 — Portafolio combinado")
+
+        try:
+            df_portafolio = construir_portafolio(fondos_disponibles, asignaciones)
+
+            st.success("Portafolio combinado construido correctamente.")
+
+            st.markdown("### Serie mensual del portafolio")
+            st.dataframe(df_portafolio.head(24), use_container_width=True, hide_index=True)
+
+            st.markdown("### Evolución del portafolio combinado")
+            st.line_chart(df_portafolio.set_index("Date")[["Price"]])
+
+            st.markdown("### Resumen del portafolio")
+            fecha_inicio_port = df_portafolio["Date"].min().strftime("%Y-%m-%d")
+            fecha_fin_port = df_portafolio["Date"].max().strftime("%Y-%m-%d")
+            nav_inicial = df_portafolio["Price"].iloc[0]
+            nav_final = df_portafolio["Price"].iloc[-1]
+            rendimiento_total = ((nav_final / nav_inicial) - 1) * 100 if nav_inicial != 0 else 0
+
+            resumen_port = pd.DataFrame([{
+                "Inicio": fecha_inicio_port,
+                "Fin": fecha_fin_port,
+                "Meses": len(df_portafolio),
+                "NAV inicial": round(nav_inicial, 4),
+                "NAV final": round(nav_final, 4),
+                "Rendimiento acumulado": f"{rendimiento_total:,.2f}%"
+            }])
+
+            st.dataframe(resumen_port, use_container_width=True, hide_index=True)
+
+            # ---------------------------
+            # PASO 6 — SIMULACIÓN DEL PRODUCTO
+            # ---------------------------
+            st.markdown("## Paso 6 — Simulación del producto")
+
+            try:
+                retiros_programados = []
+
+                if producto == "MIS":
+                    df_resultado = simular_mis(
+                        df_base=df_portafolio,
+                        monto_inicial=monto_inicial,
+                        anio_inicio=int(año_inicio),
+                        mes_inicio=int(mes_inicio),
+                        aportes_extra=aportes_extra,
+                        retiros_programados=retiros_programados
+                    )
+
+                else:
+                    df_resultado = simular_mss(
+                        df_base=df_portafolio,
+                        plazo_anios=int(plazo),
+                        monto_aporte=float(aporte_periodico),
+                        frecuencia_pago=frecuencia_pago,
+                        anio_inicio=int(año_inicio),
+                        mes_inicio=int(mes_inicio),
+                        retiros_programados=retiros_programados
+                    )
+
+                st.success("Simulación completada correctamente.")
+
+                valor_final = df_resultado["Valor_Cuenta"].iloc[-1]
+                valor_rescate = df_resultado["Valor_Rescate"].iloc[-1]
+                aporte_total = df_resultado["Aporte_Acum"].iloc[-1]
+
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Aporte total", f"USD {aporte_total:,.0f}")
+                col2.metric("Valor en cuenta", f"USD {valor_final:,.0f}")
+                col3.metric("Valor de rescate", f"USD {valor_rescate:,.0f}")
+
+                st.markdown("### Evolución de la inversión")
+                graf_df = df_resultado.set_index("Date")[[
+                    "Aporte_Acum",
+                    "Valor_Cuenta",
+                    "Valor_Rescate"
+                ]]
+                st.line_chart(graf_df)
+
+                st.markdown("### Resumen anual")
+                resumen_anual = construir_resumen_anual(
+                    df_resultado,
+                    anio_inicio=int(año_inicio),
+                    mes_inicio=int(mes_inicio)
+                )
+
+                st.dataframe(resumen_anual, use_container_width=True, hide_index=True)
+
+            except Exception as e:
+                st.error(f"Error en la simulación: {e}")
+
+        except Exception as e:
+            st.error(f"Error construyendo el portafolio: {e}")
+
 # ---------------------------
 # TABLA DE FONDOS NO DISPONIBLES
 # ---------------------------
