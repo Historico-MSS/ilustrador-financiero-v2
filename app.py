@@ -164,6 +164,24 @@ if fondos_disponibles:
     )
 
     st.dataframe(df_disponibles, use_container_width=True, hide_index=True)
+# ---------------------------
+# PASO 2 — SELECCIÓN DE FONDOS
+# ---------------------------
+st.markdown("## Paso 2 — Selección de fondos")
+
+nombres_fondos = list(fondos_disponibles.keys())
+
+fondos_seleccionados = st.multiselect(
+    "Selecciona hasta 8 fondos",
+    options=nombres_fondos,
+    default=[],
+    max_selections=8
+)
+
+st.write(f"Fondos seleccionados: {len(fondos_seleccionados)} de 8")
+
+if len(fondos_seleccionados) > 8:
+    st.error("Solo puedes seleccionar un máximo de 8 fondos.")
 
 # ---------------------------
 # TABLA DE FONDOS NO DISPONIBLES
