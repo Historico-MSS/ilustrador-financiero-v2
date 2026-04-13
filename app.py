@@ -12,9 +12,9 @@ from modules.reporting import construir_estado_cuenta_final
 
 st.set_page_config(page_title="Ilustrador Financiero V2", layout="wide")
 
-# =========================================================
-# FORMATOS
-# =========================================================
+# ============================
+# FORMATO
+# ============================
 def color_valores(val):
     try:
         v = float(str(val).replace("USD", "").replace("%", "").replace(",", ""))
@@ -47,10 +47,37 @@ def format_resumen(df):
 
     return df_fmt.style.map(color_valores)
 
-# =========================================================
+# ============================
+# RECOMENDACIONES AUTOMÁTICAS
+# ============================
+def generar_recomendacion(estado):
+    df = estado[estado["Fondo"] != "Total"]
+
+    mayor = df.loc[df["Participación actual"].idxmax()]
+    rendimiento = df["Rentabilidad acumulada"].mean()
+
+    texto = ""
+
+    if mayor["Participación actual"] > 60:
+        texto += f"El portafolio presenta una alta concentración en {mayor['Fondo']} ({mayor['Participación actual']:.2f}%). "
+        texto += "Se podría considerar diversificar para reducir riesgo.\n\n"
+
+    else:
+        texto += "El portafolio mantiene una diversificación adecuada entre activos.\n\n"
+
+    if rendimiento > 20:
+        texto += "El rendimiento acumulado es sólido, impulsado por activos de mayor crecimiento.\n"
+    elif rendimiento < 0:
+        texto += "El portafolio presenta rendimiento negativo; se recomienda revisar la estrategia.\n"
+    else:
+        texto += "El portafolio presenta un crecimiento moderado acorde al perfil de riesgo.\n"
+
+    return texto
+
+# ============================
 # PDF PREMIUM
-# =========================================================
-def generar_pdf(df_resultado, estado, cliente):
+# ============================
+def generar_pdf(df_resultado, estado, cliente, recomendacion):
 
     buffer = io.BytesIO()
 
@@ -65,6 +92,7 @@ def generar_pdf(df_resultado, estado, cliente):
         rend = ((valor/aporte)-1)*100 if aporte else 0
 
         ax.set_title(f"Ilustración financiera\n{cliente}", fontsize=16)
+
         fig.text(0.1,0.85,f"Aporte: USD {aporte:,.0f}")
         fig.text(0.1,0.82,f"Valor: USD {valor:,.0f}")
         fig.text(0.1,0.79,f"Rendimiento: {rend:.2f}%")
@@ -91,17 +119,12 @@ def generar_pdf(df_resultado, estado, cliente):
         pdf.savefig(fig2)
         plt.close()
 
-        # Página 3
+        # Página 3 — DONUT + TEXTO
         fig3, ax3 = plt.subplots(figsize=(11,6))
+        ax3.axis("off")
 
-        dfc = estado[estado["Fondo"]!="Total"]
-        labels = dfc["Fondo"]
-
-        ax3.bar(labels, dfc["Asignación inicial"], label="Inicial")
-        ax3.bar(labels, dfc["Participación actual"], label="Actual", alpha=0.7)
-
-        ax3.legend()
-        ax3.set_title("Composición del portafolio")
+        ax3.text(0,0.8,"Análisis del portafolio",fontsize=14,weight="bold")
+        ax3.text(0,0.5,recomendacion,fontsize=10)
 
         pdf.savefig(fig3)
         plt.close()
@@ -109,9 +132,9 @@ def generar_pdf(df_resultado, estado, cliente):
     buffer.seek(0)
     return buffer
 
-# =========================================================
+# ============================
 # APP
-# =========================================================
+# ============================
 st.title("💼 Ilustrador Financiero")
 
 fondos = cargar_todos_los_fondos("data")
@@ -170,18 +193,13 @@ if fondos_sel:
         st.subheader("Estado final")
         st.dataframe(format_estado(estado))
 
-        st.subheader("Estado en fecha")
-        mes_s = mes_numero(st.selectbox("Mes snapshot",LISTA_MESES))
-        anio_s = st.selectbox("Año snapshot",sorted(df_res["Date"].dt.year.unique()))
+        # 🔥 RECOMENDACIÓN
+        recomendacion = generar_recomendacion(estado)
+        st.subheader("Recomendación")
+        st.write(recomendacion)
 
-        fecha_s = pd.Timestamp(year=anio_s,month=mes_s,day=1)+pd.offsets.MonthEnd(0)
-        df_s = df_res[df_res["Date"]<=fecha_s]
-
-        if not df_s.empty:
-            fila = df_s.iloc[-1]
-            st.write("Valor:",f"USD {fila['Valor_Cuenta']:,.2f}")
-
-        pdf = generar_pdf(df_res,estado,cliente)
+        # PDF
+        pdf = generar_pdf(df_res,estado,cliente,recomendacion)
 
         st.download_button(
             "📄 Descargar reporte",
